@@ -8,7 +8,7 @@ Setup files for running [NarratoAI](https://github.com/linyqh/NarratoAI) — the
 
 **Everything in a single ZIP** — the full NarratoAI source with the English launcher already in place.
 
-### ⬇️ [Download NarratoAI-ENGLISH-WINDOWS.zip](./dist/NarratoAI-ENGLISH-WINDOWS.zip) · 2.5 MB
+### ⬇️ [Download NarratoAI-ENGLISH-WINDOWS.zip](./dist/NarratoAI-ENGLISH-WINDOWS.zip) · 2.6 MB
 
 On that page click **Download**. Direct link:
 
@@ -31,7 +31,8 @@ https://github.com/farmanshahid471-code/movie-cap/raw/arena/01a1034a-movie-cap/d
 | `NarratoAI/start.bat` | Launch the web UI |
 | `NarratoAI/narrato_setup_helper.py` | Config editor (English defaults, wires up FFmpeg) |
 | `NarratoAI/START-HERE-ENGLISH.txt` | Plain-English instructions + troubleshooting |
-| `NarratoAI/NARRATOAI-ENGLISH-SETUP.md` | The full guide |
+| `NarratoAI/NARRATOAI-ENGLISH-SETUP.md` | The full setup guide |
+| `NarratoAI/MOVIE-RECAP-SETTINGS.md` | **Where to put the API key + the exact settings for a Movie-Recaps style video** |
 
 English is configured automatically: `language = "en"`, Edge TTS (free voice, no API key) with `en-US-AvaMultilingualNeural-Female`, and English subtitles. Then set **Narration Language → English (United States)** inside the app so the *script* is English too.
 
@@ -76,7 +77,7 @@ Both `.bat` files re-launch themselves inside a persistent console, and **every*
 - **Control flow:** balanced blocks, all 20 + 2 jump labels exist and are reachable, no bare `exit`, no unescaped parentheses in `echo` — checked by [`tools/check_batch.py`](./tools/check_batch.py).
 - **Dependencies:** every pinned requirement resolves on PyPI with a Windows/Python 3.12 wheel (`pysrt` has no wheel but builds from sdist via setuptools).
 - **Download URLs:** both return real assets — uv 18,043,715 bytes, FFmpeg 200,163,050 bytes.
-- **The bundle ZIP:** CRC check passes (191 files), longest extracted path is 81 characters, and the copy on GitHub is byte-identical to the verified local build (sha256 `73f11c6a1d3c9fceca4ea9d82c29397727a39c8defccef5849240f06edb22169`).
+- **The bundle ZIP:** CRC check passes (192 files), longest extracted path is 81 characters, and the copy on GitHub is byte-identical to the verified local build (sha256 `46abccc8f72db2a1630defc4554eb504953dad48377582f3cc5ebcec0b8bbc1a`).
 
 *Not verified: the `.bat` files have never been executed on real Windows — this sandbox is Linux. The checks above are static analysis plus live HTTP/PyPI verification. If something does fail, the window will stay open and show you the error.*
 
