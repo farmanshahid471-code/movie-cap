@@ -163,31 +163,44 @@ Leave everything at the default. This is where FFmpeg is reported — it should 
 
 ## PART 4 — Error: "Unsupported parameter: 'max_tokens'"
 
-If **Test Connection** (or narration generation) fails with:
+If you see:
 
 ```
 Error code: 400 ... Unsupported parameter: 'max_tokens' is not supported with this model.
 Use 'max_completion_tokens' instead.
 ```
 
-**This is not your mistake — it is a limitation in NarratoAI's code.** I traced it:
+**This is not your mistake — it is a limitation in NarratoAI's code.** I traced both causes:
 
-- `app/services/llm/openai_compatible_provider.py` always sends `max_tokens`, taken from `text_openai_max_tokens` / `vision_openai_max_tokens` (default **65536**).
-- The API's "bad request" handler only has a fallback for `response_format`. There is **no** fallback for `max_tokens`.
+- `app/services/llm/openai_compatible_provider.py` always sends `max_tokens`, taken from `text_openai_max_tokens` / `vision_openai_max_tokens` — default **65536**.
+- Its error handler only has a fallback for `response_format`. There is **none** for `max_tokens`.
 
-**Cause:** you picked a model that refuses `max_tokens` — the OpenAI **o-series (`o1`, `o3`, `o4-mini`) and `gpt-5*`** families, or an aggregator passing those through. Older models (`gpt-4o`, `gpt-4o-mini`, `gpt-4.1`, Gemini, Qwen, DeepSeek…) accept `max_tokens` fine.
+### ⚠️ Two traps you will hit
 
-### Fix A — no code changes (do this first)
+**Trap 1 — the Test Connection button is misleading.** The button does not use your settings. It sends a hardcoded probe:
 
-Set the token cap to **0**. The app only sends `max_tokens` when the value is greater than zero, so **0 removes it from the request entirely** and the model uses its own default.
+| Probe | What it actually sends |
+|---|---|
+| Text model test | `temperature=0.1, max_tokens=20` |
+| Vision model test | `temperature=0.1, max_tokens=50` |
 
-In the app: **Basic Settings** → scroll to the generation controls under each model panel → set **"Max Output Tokens"** to **0**.
+So your **green tick for `gpt-4o` does not prove generation will work** — see trap 2. And for a gpt-5 model the test stays **red even after you fix the config**, because the probe ignores your "Max Output Tokens" setting entirely.
 
-Do it for **both** panels:
-- **Text Model Settings** → Max Output Tokens = `0`
-- **Vision Model Settings** → Max Output Tokens = `0`
+**Trap 2 — `gpt-4o` will fail later with a different error.** NarratoAI's default 65536 exceeds what most models allow for output. With `gpt-4o` left at 65536, real generation fails with:
 
-Or edit `config.toml` directly and restart:
+```
+400 max_tokens is too large: 65536. This model supports at most 16384 completion tokens
+```
+
+`gpt-4o` accepts `max_tokens`, but only up to **16,384** (older snapshots: 4,096). The test passed only because it asked for 20.
+
+### ✅ Fix — set Max Output Tokens to 0
+
+The app sends `max_tokens` **only when the value is greater than zero**. Setting 0 removes it from the request, and each model then uses its own default. This fixes **both** traps at once.
+
+In the app: **Basic Settings → Generation Settings → "Max Output Tokens" = 0** — for **both** the Vision and the Text panels.
+
+Or in `config.toml`, then restart:
 
 ```toml
 [app]
@@ -195,28 +208,27 @@ Or edit `config.toml` directly and restart:
     vision_openai_max_tokens = 0
 ```
 
-*(Verified by executing the real `_build_chat_completion_options` from the source: at 65536 the request contains `{'temperature': 1.0, 'top_p': 0.95, 'max_tokens': 65536}`; at 0 it becomes `{'temperature': 1.0, 'top_p': 0.95}` — no `max_tokens` key at all.)*
+*Verified by executing the real `_build_chat_completion_options` from the source: at 65536 the request is `{'temperature': 1.0, 'top_p': 0.95, 'max_tokens': 65536}`; at 0 it is `{'temperature': 1.0, 'top_p': 0.95}` — no `max_tokens` key at all.*
 
-### Fix B — use a model that supports `max_tokens`
+### ✅ Also: run `fix-max-tokens.bat`
 
-Simplest if you are on OpenAI: `gpt-4o` or `gpt-4o-mini`. These accept `max_tokens` and work with the defaults, no changes needed.
+Setting 0 fixes generation, but the **Test Connection button will still show red** for gpt-5 models. `fix-max-tokens.bat` (in the `windows/` folder / bundle root) fixes that too:
 
-### Fix C — permanent patch (optional, keeps the token cap)
+- retries a request with `max_completion_tokens` when the model demands it
+- drops `max_tokens` when the model says the value is too large
+- removes the hardcoded probe so the Test button works for every model
 
-**`fix-max-tokens.bat`** in the `windows/` folder patches the app so that when the API complains about `max_tokens`, the request is **retried automatically with `max_completion_tokens`** — so you keep your token limit and can use o-series / gpt-5 models.
+Put `fix-max-tokens.bat` and `fix_max_completion_tokens.py` next to `webui.py`, double-click the `.bat`, then restart with `start.bat`.
 
-Put `fix-max-tokens.bat` and `fix_max_completion_tokens.py` next to `webui.py` and double-click the `.bat`. It:
+Tested against both real error messages: gpt-5-style → renamed to `max_completion_tokens` (value kept); gpt-4o-style → parameter dropped; unrelated errors (e.g. `temperature`) → left untouched, so it cannot misfire. It backs up first, compiles both files afterwards, restores the backups on any failure, and refuses to write if an anchor moved.
 
-- writes a backup (`openai_compatible_provider.py.max-tokens-fix.bak`) first
-- is safe to run twice (it detects its own marker)
-- compiles the patched file afterwards and **restores the backup automatically** if anything went wrong
-- refuses to touch anything if the file has changed upstream (verified: on a mismatched file it exits with an error and modifies nothing)
+### ✅ Or simply use models that behave
 
-After patching, restart NarratoAI with `start.bat`.
+`gpt-4o` / `gpt-4o-mini` work with **Max Output Tokens = 0**. Gemini, Qwen and DeepSeek models also accept `max_tokens` normally — just keep the value at 0 or a modest number like 4096 and they are all happy.
 
 ### If the next error names `top_p` or `temperature`
 
-Some reasoning models also reject `top_p` and custom `temperature`. If you hit that, set **Sampling Temperature = 1.0** and **Top P = 1.0**, or use Fix B. Tell me and I will extend the patch to cover those parameters too.
+Some reasoning models also refuse those. Set **Sampling Temperature = 1.0**, **Top P = 1.0** and **Thinking Level = auto** — `auto` and `off` send no `reasoning_effort` at all, while `low`/`medium`/`high` do. Tell me if you hit it and I will extend the patch.
 
 ---
 
@@ -228,7 +240,8 @@ Some reasoning models also reject `top_p` and custom `temperature`. If you hit t
 | Only a 3-minute video instead of 15 | **Copy Length** is still 500. Raise it to ~2300 |
 | Video is vertical | **Video Ratio** is still Portrait. Set it to Landscape |
 | "API key cannot be empty" / connection test fails | Key copied with a trailing space, or the base URL does not match the provider, or you put a **text-only** model in the vision panel |
-| `Unsupported parameter: 'max_tokens'` | See **Part 4** above — set **Max Output Tokens to 0**, or switch to `gpt-4o-mini`, or run `fix-max-tokens.bat` |
+| `Unsupported parameter: 'max_tokens'` — or `max_tokens is too large` | See **Part 4** above — set **Max Output Tokens to 0** in both panels, then run `fix-max-tokens.bat` |
+| Test Connection red, but the model name is right | The button hardcodes `max_tokens=20`, so gpt-5 models always fail the test — see **Part 4**, trap 1. Add `max_tokens = 0` and run `fix-max-tokens.bat` |
 | Voice-over missing / silent video | TTS engine is still IndexTTS without a local model. Switch to **Edge TTS** |
 | Script invents plot that is not in the film | Turn on **Tavily search** in Basic Settings (needs a free Tavily key) so it can look up the real plot, and edit the script before generating |
 | Subtitles show as boxes/blank squares | Font name does not contain Latin glyphs — switch back to the default `SourceHanSansCN-Regular.otf` |
