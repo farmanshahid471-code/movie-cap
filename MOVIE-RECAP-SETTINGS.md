@@ -163,7 +163,7 @@ Leave everything at the default. This is where FFmpeg is reported — it should 
 
 ---
 
-## PART 4 — Error: "Unsupported parameter: 'max_tokens'"
+## PART 4 — 400 errors from generation parameters
 
 If you see:
 
@@ -176,6 +176,25 @@ Use 'max_completion_tokens' instead.
 
 - `app/services/llm/openai_compatible_provider.py` always sends `max_tokens`, taken from `text_openai_max_tokens` / `vision_openai_max_tokens` — default **65536**.
 - Its error handler only has a fallback for `response_format`. There is **none** for `max_tokens`.
+
+### The three failures, and which parameter causes each
+
+| Error message | Cause | Which model |
+|---|---|---|
+| `Unrecognized request argument supplied: reasoning_effort` | NarratoAI adds `reasoning_effort` whenever **Thinking Level** is `low` / `medium` / `high` | Any **non-reasoning** model: `gpt-4o`, `gpt-4o-mini`, `gpt-4.1`, Gemini, Qwen, DeepSeek |
+| `Unsupported parameter: 'max_tokens' ... Use 'max_completion_tokens'` | The model dropped `max_tokens` entirely | o-series (`o1`, `o3`, `o4-mini`), `gpt-5*` |
+| `max_tokens is too large: 65536` | NarratoAI's default 65536 exceeds the model's output cap | `gpt-4o` (cap 16,384), older snapshots (4,096) |
+
+**Fastest fix for all three — set these in both model panels:**
+
+| Setting | Value | Why |
+|---|---|---|
+| **Thinking Level** | **`auto`** or **`off`** | Only `low`/`medium`/`high` send `reasoning_effort`. `auto` and `off` send nothing — verified in the source |
+| **Max Output Tokens** | **`0`** | `max_tokens` is only sent when the value is greater than 0 |
+| Sampling Temperature | `1.0` | Some models reject a custom temperature |
+| Top P | `1.0` | Some models reject `top_p` |
+
+With those four values, **every** model above works — no patching needed.
 
 ### ⚠️ Two traps you will hit
 
@@ -216,21 +235,23 @@ Or in `config.toml`, then restart:
 
 Setting 0 fixes generation, but the **Test Connection button will still show red** for gpt-5 models. `fix-max-tokens.bat` (in the `windows/` folder / bundle root) fixes that too:
 
-- retries a request with `max_completion_tokens` when the model demands it
+- renames `max_tokens` to `max_completion_tokens` when the model demands it
 - drops `max_tokens` when the model says the value is too large
+- drops `reasoning_effort` when the model does not recognise it
+- drops `top_p` / `temperature` when a model refuses those
 - removes the hardcoded probe so the Test button works for every model
 
 Put `fix-max-tokens.bat` and `fix_max_completion_tokens.py` next to `webui.py`, double-click the `.bat`, then restart with `start.bat`.
 
-Tested against both real error messages: gpt-5-style → renamed to `max_completion_tokens` (value kept); gpt-4o-style → parameter dropped; unrelated errors (e.g. `temperature`) → left untouched, so it cannot misfire. It backs up first, compiles both files afterwards, restores the backups on any failure, and refuses to write if an anchor moved.
+Tested against all four real error messages: the gpt-5 one → renamed to `max_completion_tokens` (value kept); the "too large" one → parameter dropped; `reasoning_effort` → removed from the request; `top_p` → dropped. Unrelated 400s are left untouched, so it cannot misfire. It also upgrades cleanly over the earlier version of the patch. It backs up first, compiles both files afterwards, restores the backups on any failure, and refuses to write if an anchor moved.
 
 ### ✅ Or simply use models that behave
 
 `gpt-4o` / `gpt-4o-mini` work with **Max Output Tokens = 0**. Gemini, Qwen and DeepSeek models also accept `max_tokens` normally — just keep the value at 0 or a modest number like 4096 and they are all happy.
 
-### If the next error names `top_p` or `temperature`
+### FunASR / `[WinError 10061] 127.0.0.1:7860` — safe to ignore
 
-Some reasoning models also refuse those. Set **Sampling Temperature = 1.0**, **Top P = 1.0** and **Thinking Level = auto** — `auto` and `off` send no `reasoning_effort` at all, while `low`/`medium`/`high` do. Tell me if you hit it and I will extend the patch.
+If your log also shows a connection error to **port 7860**, that is only the optional local **FunASR-Pack** service used by the *"transcribe subtitles"* button. You already have a subtitle file, so you never need it. Just do not click that button — it has nothing to do with script generation. To use it you would have to install and start FunASR-Pack separately.
 
 ---
 
@@ -243,6 +264,8 @@ Some reasoning models also refuse those. Set **Sampling Temperature = 1.0**, **T
 | Video is vertical | **Video Ratio** is still Portrait. Set it to Landscape |
 | "API key cannot be empty" / connection test fails | Key copied with a trailing space, or the base URL does not match the provider, or you put a **text-only** model in the vision panel |
 | `Unsupported parameter: 'max_tokens'` — or `max_tokens is too large` | See **Part 4** above — set **Max Output Tokens to 0** in both panels, then run `fix-max-tokens.bat` |
+| `Unrecognized request argument supplied: reasoning_effort` | **Thinking Level** is not `auto`/`off` on a non-reasoning model — see **Part 4**. Set Thinking Level = `auto` in both panels |
+| `max_tokens is too large` | Set **Max Output Tokens = 0** in both panels — see **Part 4** |
 | Test Connection red, but the model name is right | The button hardcodes `max_tokens=20`, so gpt-5 models always fail the test — see **Part 4**, trap 1. Add `max_tokens = 0` and run `fix-max-tokens.bat` |
 | Voice-over missing / silent video | TTS engine is still IndexTTS without a local model. Switch to **Edge TTS** |
 | Script invents plot that is not in the film | Turn on **Tavily search** in Basic Settings (needs a free Tavily key) so it can look up the real plot, and edit the script before generating |

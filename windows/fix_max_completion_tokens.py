@@ -1,21 +1,28 @@
-"""Patch NarratoAI so it works with models that reject `max_tokens`.
+"""Patch NarratoAI so it works with models that reject certain parameters.
 
-Two different failures are fixed:
+NarratoAI always sends the same generation parameters. Several model families
+refuse some of them, which makes generation fail with a 400 error:
 
-1. Newer OpenAI models (o-series, gpt-5*) refuse the parameter outright:
-       400 Unsupported parameter: 'max_tokens' is not supported with this model.
-       Use 'max_completion_tokens' instead.
-   -> the request is retried with `max_completion_tokens`.
+1. o-series / gpt-5 refuse `max_tokens`:
+       400 Unsupported parameter: 'max_tokens' ... Use 'max_completion_tokens'
+   -> retried with `max_completion_tokens`.
 
-2. Older models cap the output size, so NarratoAI's default of 65536 is too big:
-       400 max_tokens is too large: 65536. This model supports at most
-       16384 completion tokens, whereas you provided 65536.
-   -> the request is retried without `max_tokens` at all.
+2. gpt-4o and friends cap the output size, so the 65536 default is too big:
+       400 max_tokens is too large: 65536. This model supports at most 16384
+   -> retried without `max_tokens` at all.
 
-It also fixes the "Test Connection" button, which hardcodes max_tokens=20 (text)
-and max_tokens=50 (vision) and therefore reports a false failure for models in
-group 1. For those probes the parameter is simply dropped - the reply is a short
-"connection succeeded" string anyway.
+3. Any non-reasoning model (gpt-4o, gpt-4.1, Gemini, Qwen...) rejects
+   `reasoning_effort`, which NarratoAI adds whenever Thinking Level is set to
+   low / medium / high:
+       400 Unrecognized request argument supplied: reasoning_effort
+   -> retried without `reasoning_effort`.
+
+4. Some models also refuse `top_p` or a custom `temperature`
+   -> those parameters are dropped on retry.
+
+It also fixes the "Test Connection" button, which hardcodes max_tokens=20
+(text) and max_tokens=50 (vision) and therefore reports a false failure for
+models in group 1.
 
 Edited files:
     app/services/llm/openai_compatible_provider.py   (generation path)
@@ -24,6 +31,8 @@ Edited files:
 Safety:
   * a .bak backup is written the first time
   * running it twice is harmless (it detects its own marker)
+  * if an older version of this patch is present, it restores the .bak first
+    and applies the new one
   * every patched file is compiled afterwards; on any error the backup is restored
   * if an anchor no longer matches (upstream changed) it stops without writing
 """
@@ -34,7 +43,8 @@ import os
 import shutil
 import sys
 
-MARKER = "_adapt_max_tokens"
+VERSION_MARKER = "_adapt_request_params"
+OLD_MARKER = "_is_max_tokens_param_error"
 
 PROVIDER = os.path.join("app", "services", "llm", "openai_compatible_provider.py")
 WEBUI = os.path.join("webui", "components", "basic_settings.py")
@@ -44,32 +54,53 @@ BACKUP_SUFFIX = ".max-tokens-fix.bak"
 
 HELPERS = '''
 
-def _is_max_tokens_param_error(message: str) -> bool:
-    """True when the API rejected max_tokens for this particular model."""
-    text = (message or "").lower()
-    if "max_tokens" not in text:
-        return False
-    return any(
-        hint in text
-        for hint in ("max_completion_tokens", "too large", "unsupported_parameter",
-                     "unsupported parameter")
-    )
+def _adapt_request_params(completion_kwargs: dict, message: str) -> bool:
+    """Remove or rename parameters this model refused. True when changed.
 
-
-def _adapt_max_tokens(completion_kwargs: dict, message: str) -> bool:
-    """Make the request acceptable to the model. Returns True when changed.
-
-    * model wants max_completion_tokens -> rename the parameter
-    * model thinks the value is too big  -> drop the parameter entirely
+    Handles the four failures NarratoAI hits in practice:
+      * max_tokens not supported at all      -> rename to max_completion_tokens
+      * max_tokens value too large           -> drop it
+      * reasoning_effort not recognized      -> drop it
+      * top_p / temperature not supported    -> drop them
     """
-    if "max_tokens" not in completion_kwargs:
-        return False
     text = (message or "").lower()
-    if "max_completion_tokens" in text:
-        completion_kwargs["max_completion_tokens"] = completion_kwargs.pop("max_tokens")
+    if not text:
+        return False
+
+    changed = False
+
+    if "max_tokens" in text and "max_tokens" in completion_kwargs:
+        if "max_completion_tokens" in text:
+            completion_kwargs["max_completion_tokens"] = completion_kwargs.pop("max_tokens")
+            changed = True
+        elif any(hint in text for hint in ("too large", "unsupported_parameter", "unsupported parameter")):
+            completion_kwargs.pop("max_tokens")
+            changed = True
+
+    if "reasoning_effort" in text:
+        extra_body = completion_kwargs.get("extra_body")
+        if isinstance(extra_body, dict) and "reasoning_effort" in extra_body:
+            extra_body.pop("reasoning_effort")
+            if not extra_body:
+                completion_kwargs.pop("extra_body")
+            changed = True
+
+    for param in ("top_p", "temperature"):
+        if param in text and param in completion_kwargs:
+            completion_kwargs.pop(param)
+            changed = True
+
+    return changed
+
+
+def _is_adaptable_param_error(message: str) -> bool:
+    """True when the failure is one of the parameter problems above."""
+    text = (message or "").lower()
+    if "unsupported_parameter" in text or "unrecognized request argument" in text:
         return True
-    if "too large" in text or "unsupported_parameter" in text or "unsupported parameter" in text:
-        completion_kwargs.pop("max_tokens")
+    if "max_tokens" in text and ("too large" in text or "max_completion_tokens" in text):
+        return True
+    if "reasoning_effort" in text:
         return True
     return False
 
@@ -88,8 +119,8 @@ VISION_ANCHOR = """        except OpenAIBadRequestError as exc:
 
 VISION_PATCH = """        except OpenAIBadRequestError as exc:
             error_msg = str(exc)
-            if _is_max_tokens_param_error(error_msg) and _adapt_max_tokens(completion_options, error_msg):
-                logger.warning("模型不接受当前 max_tokens，调整参数后重试")
+            if _is_adaptable_param_error(error_msg) and _adapt_request_params(completion_options, error_msg):
+                logger.warning("模型不接受当前参数，调整后重试")
                 retry_response = await client.chat.completions.create(
                     model=model_name,
                     messages=messages,
@@ -103,8 +134,8 @@ VISION_PATCH = """        except OpenAIBadRequestError as exc:
 
 TEXT_ANCHOR = """            # 某些网关不支持 response_format，回退到提示词约束模式"""
 
-TEXT_PATCH = """            if _is_max_tokens_param_error(error_msg) and _adapt_max_tokens(completion_kwargs, error_msg):
-                logger.warning("模型不接受当前 max_tokens，调整参数后重试")
+TEXT_PATCH = """            if _is_adaptable_param_error(error_msg) and _adapt_request_params(completion_kwargs, error_msg):
+                logger.warning("模型不接受当前参数，调整后重试")
                 retry_response = await client.chat.completions.create(**completion_kwargs)
                 if retry_response.choices and retry_response.choices[0].message and retry_response.choices[0].message.content:
                     return retry_response.choices[0].message.content
@@ -114,8 +145,8 @@ TEXT_PATCH = """            if _is_max_tokens_param_error(error_msg) and _adapt_
 STREAM_ANCHOR = """            if response_format == "json" and _is_response_format_error(error_msg):
                 logger.warning("目标网关不支持流式 response_format，回退为提示词约束 JSON 输出")"""
 
-STREAM_PATCH = """            if _is_max_tokens_param_error(error_msg) and _adapt_max_tokens(completion_kwargs, error_msg):
-                logger.warning("模型不接受当前 max_tokens，调整参数后重试")
+STREAM_PATCH = """            if _is_adaptable_param_error(error_msg) and _adapt_request_params(completion_kwargs, error_msg):
+                logger.warning("模型不接受当前参数，调整后重试")
                 return await collect_stream()
 
             if response_format == "json" and _is_response_format_error(error_msg):
@@ -123,9 +154,6 @@ STREAM_PATCH = """            if _is_max_tokens_param_error(error_msg) and _adap
 
 # --------------------------------------------------------------------- webui
 
-# The Test Connection probes always send a hardcoded max_tokens, which makes
-# models in group 1 report a false failure. Dropping it is safe: these are
-# connectivity checks with a one-word answer.
 WEBUI_EDITS = (
     (
         "            temperature=0.1,\n            max_tokens=20,\n",
@@ -154,6 +182,11 @@ def read(path: str) -> str:
         return handle.read()
 
 
+def write(path: str, text: str) -> None:
+    with open(path, "w", encoding="utf-8", newline="") as handle:
+        handle.write(text)
+
+
 def backup(path: str) -> None:
     target = path + BACKUP_SUFFIX
     if not os.path.exists(target):
@@ -161,27 +194,45 @@ def backup(path: str) -> None:
         print(f"[OK] Backup written: {display(target)}")
 
 
-def write(path: str, text: str) -> None:
-    with open(path, "w", encoding="utf-8", newline="") as handle:
-        handle.write(text)
-
-
-def verify(path: str, original_path: str, label: str) -> None:
+def verify(path: str, label: str) -> None:
     try:
         compile(read(path), path, "exec")
     except SyntaxError as exc:
-        shutil.copy2(original_path, path)
+        shutil.copy2(path + BACKUP_SUFFIX, path)
         fail(f"{label} did not compile; the original was restored.\n        {exc}")
+
+
+def restore_old_patch(path: str, label: str) -> None:
+    """An older version of this patch is applied - roll it back first."""
+    target = path + BACKUP_SUFFIX
+    if not os.path.exists(target):
+        fail(
+            f"{label} already contains an older version of this patch and no backup\n"
+            "        was found next to it, so it cannot be upgraded automatically.\n"
+            "        Restore that file from your NarratoAI download, then run this again."
+        )
+    shutil.copy2(target, path)
+    if OLD_MARKER in read(path):
+        fail(
+            f"the backup next to {label} also contains the old patch, so it cannot be\n"
+            "        used to roll back. Replace that file with a fresh copy from your\n"
+            "        NarratoAI download, then run this again."
+        )
+    print(f"[OK] Removed the older patch from {display(path)} (restored the backup)")
 
 
 def patch_provider(root: str) -> bool:
     path = os.path.join(root, PROVIDER)
     if not os.path.isfile(path):
         fail(f"could not find {PROVIDER}\n        Run this script from the NarratoAI folder.")
+
     text = read(path)
-    if MARKER in text:
+    if VERSION_MARKER in text:
         print(f"[SKIP] {PROVIDER} is already patched")
         return False
+    if OLD_MARKER in text:
+        restore_old_patch(path, PROVIDER)
+        text = read(path)
 
     eol = "\r\n" if "\r\n" in text else "\n"
 
@@ -202,7 +253,7 @@ def patch_provider(root: str) -> bool:
 
     backup(path)
     write(path, text)
-    verify(path, path + BACKUP_SUFFIX, PROVIDER)
+    verify(path, PROVIDER)
     print(f"[OK] Patched {PROVIDER}")
     return True
 
@@ -212,12 +263,12 @@ def patch_webui(root: str) -> bool:
     if not os.path.isfile(path):
         print(f"[WARN] {WEBUI} not found - skipping the Test Connection fix")
         return False
+
     text = read(path)
     changed = False
     for old, new, label in WEBUI_EDITS:
         if old not in text:
-            # already removed on a previous run, or upstream changed
-            continue
+            continue  # already removed, or upstream changed
         if text.count(old) != 1:
             fail(f"anchor for {label} matched {text.count(old)} times (expected 1).")
         text = text.replace(old, new, 1)
@@ -230,13 +281,13 @@ def patch_webui(root: str) -> bool:
 
     backup(path)
     write(path, text)
-    verify(path, path + BACKUP_SUFFIX, WEBUI)
+    verify(path, WEBUI)
     return True
 
 
 def main() -> int:
     root = os.path.dirname(os.path.abspath(__file__))
-    print("NarratoAI max_tokens compatibility fix")
+    print("NarratoAI parameter compatibility fix")
     print("-" * 50)
 
     changed_provider = patch_provider(root)
@@ -248,8 +299,12 @@ def main() -> int:
 
     print()
     print("[DONE] Restart NarratoAI for the change to take effect.")
-    print("       Models that need max_completion_tokens now work automatically,")
-    print("       and the Test Connection button no longer reports a false error.")
+    print("       These are now handled automatically:")
+    print("         max_tokens            -> max_completion_tokens when required")
+    print("         max_tokens too large  -> dropped")
+    print("         reasoning_effort      -> dropped when unsupported")
+    print("         top_p / temperature   -> dropped when unsupported")
+    print("       The Test Connection button also works for every model now.")
     return 0
 
 
