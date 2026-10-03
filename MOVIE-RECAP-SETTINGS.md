@@ -157,7 +157,9 @@ Leave everything at the default. This is where FFmpeg is reported — it should 
 4. Read through the script — fix any names or facts it got wrong. This is the cheapest place to fix mistakes
 5. **Middle column:** Edge TTS + your chosen English voice
 6. **Right column:** Landscape + 1080p
-7. Click **Generate Video** at the bottom and wait. Output lands in the `storage` folder
+7. Click **"Generate Editing Script"** (the button beside *Generate Narration Copy*) and wait
+8. Click **"Edit Video Script"** -> **"Save Script"** in the popup - this creates the real script file
+9. Click **Generate Video** at the bottom and wait. Output lands in the `storage` folder
 
 ---
 
@@ -249,3 +251,52 @@ Some reasoning models also refuse those. Set **Sampling Temperature = 1.0**, **T
 ---
 
 *Source-verified against NarratoAI `main` @ `9fa69e0`. Every label in this document is the exact English string the app renders (`webui/i18n/en.json`).*
+
+## PART 6 — "解说脚本文件不存在！" (script file does not exist)
+
+**Translation:** *"The narration script file does not exist! Please click the [Save Script] button to save the script before generating the video."*
+
+### Why it happens
+
+NarratoAI stores the script location in one variable called `video_clip_json_path`. When you simply **pick a mode** from the dropdown, that variable is set to the *mode name* (`film_summary`) instead of a file path. Because a mode name is a non-empty string, the "script is empty" check passes, the render starts, and then the app tries to open a file literally named `film_summary` — which does not exist. Hence the error.
+
+So: nothing is broken, you just have not saved a script file yet.
+
+### The two clicks you are missing
+
+In **Film/TV Narration** mode the panel has **two** buttons side by side:
+
+| Button | What it does |
+|---|---|
+| **Generate Narration Copy** | Writes the narration text only. It does **not** create a script file. |
+| **Generate Editing Script** | Builds the timestamped script (narration matched to footage) — but still only in memory |
+
+After clicking **Generate Editing Script**, the **"Video Script"** section above shows a row count like *"42 script rows"*. That is only in memory — **you must save it**:
+
+1. Click **"Edit Video Script"** — a large popup opens with a table of the script
+2. Click **"Save Script"** inside that popup
+
+That writes the real file to `resource/scripts/<timestamp>.json`, sets the path correctly, and shows *"✅ Script format validated and saved successfully!"*.
+
+**Good sign:** after saving, the mode dropdown switches itself to **"Select/Upload Script"** and your new `.json` appears in the file list. That is expected — it is now pointing at a real file.
+
+Only now does **Generate Video** work.
+
+### Checklist before pressing Generate Video
+
+- [ ] Subtitle file loaded (you have one — make sure it is selected, not just the video)
+- [ ] **Generate Narration Copy** → review the text in the box
+- [ ] **Generate Editing Script** → wait for "Video script generated successfully"
+- [ ] **"Video Script"** section shows a row count **greater than 0**
+- [ ] **Edit Video Script → Save Script** → green "validated and saved successfully"
+- [ ] Only then: **Generate Video**
+
+### If the row count stays at 0
+
+The script generation failed silently. Open the black console window running NarratoAI and scroll up — the real reason is printed there (usually: subtitle file missing, no API key, or the JSON produced by the model could not be parsed).
+
+### Reusing an existing script
+
+You can skip generation entirely: choose the mode **"Select/Upload Script"** and pick a previously saved `.json` from the list. Handy for making several videos from one script.
+
+---
