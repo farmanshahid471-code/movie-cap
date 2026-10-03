@@ -161,7 +161,66 @@ Leave everything at the default. This is where FFmpeg is reported — it should 
 
 ---
 
-## PART 4 — If something looks wrong
+## PART 4 — Error: "Unsupported parameter: 'max_tokens'"
+
+If **Test Connection** (or narration generation) fails with:
+
+```
+Error code: 400 ... Unsupported parameter: 'max_tokens' is not supported with this model.
+Use 'max_completion_tokens' instead.
+```
+
+**This is not your mistake — it is a limitation in NarratoAI's code.** I traced it:
+
+- `app/services/llm/openai_compatible_provider.py` always sends `max_tokens`, taken from `text_openai_max_tokens` / `vision_openai_max_tokens` (default **65536**).
+- The API's "bad request" handler only has a fallback for `response_format`. There is **no** fallback for `max_tokens`.
+
+**Cause:** you picked a model that refuses `max_tokens` — the OpenAI **o-series (`o1`, `o3`, `o4-mini`) and `gpt-5*`** families, or an aggregator passing those through. Older models (`gpt-4o`, `gpt-4o-mini`, `gpt-4.1`, Gemini, Qwen, DeepSeek…) accept `max_tokens` fine.
+
+### Fix A — no code changes (do this first)
+
+Set the token cap to **0**. The app only sends `max_tokens` when the value is greater than zero, so **0 removes it from the request entirely** and the model uses its own default.
+
+In the app: **Basic Settings** → scroll to the generation controls under each model panel → set **"Max Output Tokens"** to **0**.
+
+Do it for **both** panels:
+- **Text Model Settings** → Max Output Tokens = `0`
+- **Vision Model Settings** → Max Output Tokens = `0`
+
+Or edit `config.toml` directly and restart:
+
+```toml
+[app]
+    text_openai_max_tokens = 0
+    vision_openai_max_tokens = 0
+```
+
+*(Verified by executing the real `_build_chat_completion_options` from the source: at 65536 the request contains `{'temperature': 1.0, 'top_p': 0.95, 'max_tokens': 65536}`; at 0 it becomes `{'temperature': 1.0, 'top_p': 0.95}` — no `max_tokens` key at all.)*
+
+### Fix B — use a model that supports `max_tokens`
+
+Simplest if you are on OpenAI: `gpt-4o` or `gpt-4o-mini`. These accept `max_tokens` and work with the defaults, no changes needed.
+
+### Fix C — permanent patch (optional, keeps the token cap)
+
+**`fix-max-tokens.bat`** in the `windows/` folder patches the app so that when the API complains about `max_tokens`, the request is **retried automatically with `max_completion_tokens`** — so you keep your token limit and can use o-series / gpt-5 models.
+
+Put `fix-max-tokens.bat` and `fix_max_completion_tokens.py` next to `webui.py` and double-click the `.bat`. It:
+
+- writes a backup (`openai_compatible_provider.py.max-tokens-fix.bak`) first
+- is safe to run twice (it detects its own marker)
+- compiles the patched file afterwards and **restores the backup automatically** if anything went wrong
+- refuses to touch anything if the file has changed upstream (verified: on a mismatched file it exits with an error and modifies nothing)
+
+After patching, restart NarratoAI with `start.bat`.
+
+### If the next error names `top_p` or `temperature`
+
+Some reasoning models also reject `top_p` and custom `temperature`. If you hit that, set **Sampling Temperature = 1.0** and **Top P = 1.0**, or use Fix B. Tell me and I will extend the patch to cover those parameters too.
+
+---
+
+## PART 5 — If something looks wrong
 
 | Symptom | Fix |
 |---|---|
@@ -169,6 +228,7 @@ Leave everything at the default. This is where FFmpeg is reported — it should 
 | Only a 3-minute video instead of 15 | **Copy Length** is still 500. Raise it to ~2300 |
 | Video is vertical | **Video Ratio** is still Portrait. Set it to Landscape |
 | "API key cannot be empty" / connection test fails | Key copied with a trailing space, or the base URL does not match the provider, or you put a **text-only** model in the vision panel |
+| `Unsupported parameter: 'max_tokens'` | See **Part 4** above — set **Max Output Tokens to 0**, or switch to `gpt-4o-mini`, or run `fix-max-tokens.bat` |
 | Voice-over missing / silent video | TTS engine is still IndexTTS without a local model. Switch to **Edge TTS** |
 | Script invents plot that is not in the film | Turn on **Tavily search** in Basic Settings (needs a free Tavily key) so it can look up the real plot, and edit the script before generating |
 | Subtitles show as boxes/blank squares | Font name does not contain Latin glyphs — switch back to the default `SourceHanSansCN-Regular.otf` |
