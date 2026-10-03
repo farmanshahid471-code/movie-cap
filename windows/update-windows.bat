@@ -164,16 +164,30 @@ copy /y "%ROOT%\config.example.toml" "%ROOT%\config.toml" >nul
 echo       Created config.toml
 set "FRESH=1"
 
-if not exist "%ROOT%\narrato_setup_helper.py" goto :step5
+if not exist "%ROOT%\narrato_setup_helper.py" goto :step4b
 if not defined FRESH goto :cfg_repeat
 "%VPY%" "%ROOT%\narrato_setup_helper.py" --config "%ROOT%\config.toml" --first-run-english --ffmpeg-path "%ROOT%\tools\ffmpeg\bin\ffmpeg.exe"
 if errorlevel 1 echo       [WARN] Could not update config.toml automatically.
-goto :step5
+goto :step4b
 
 :cfg_repeat
-if not exist "%ROOT%\narrato_setup_helper.py" goto :step5
+if not exist "%ROOT%\narrato_setup_helper.py" goto :step4b
 "%VPY%" "%ROOT%\narrato_setup_helper.py" --config "%ROOT%\config.toml" --ensure-language --ffmpeg-path "%ROOT%\tools\ffmpeg\bin\ffmpeg.exe"
 if errorlevel 1 echo       [WARN] Could not update config.toml automatically.
+
+REM ===========================================================
+REM  STEP 4b - ffmpeg compatibility patch
+REM  New ffmpeg builds removed an option NarratoAI still uses, which
+REM  silently drops the film's original audio. This fixes the app.
+REM ===========================================================
+:step4b
+if not exist "%ROOT%\fix_ffmpeg_filter_options.py" goto :step5
+echo.
+echo [4/5] ffmpeg compatibility fix
+echo -----------------------------------------------------------
+"%VPY%" "%ROOT%\fix_ffmpeg_filter_options.py"
+if errorlevel 1 echo       [WARN] Could not apply the ffmpeg audio fix right now.
+if errorlevel 1 echo              Run fix-ffmpeg-audio-merge.bat later, before rendering.
 
 REM ===========================================================
 REM  STEP 5 - summary
@@ -191,6 +205,9 @@ echo    NEXT: double-click  start.bat  to run NarratoAI.
 echo.
 echo    This window was kept open on purpose, so you can read any
 echo    errors. You can close it now.
+echo.
+echo    Note: an ffmpeg audio fix was applied automatically so the
+echo    film's own audio stays under the narration.
 echo.
 echo    Inside the app, remember to set:
 echo      - Narration Language  :  English ^(United States^)

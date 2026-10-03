@@ -87,19 +87,22 @@ Open the app and set these. Left-to-right matches the three columns on screen.
 | **Film/TV Title** | the real film name, e.g. `The Peasants' Revolt 1381` | Better title = better web-search context = a more accurate story |
 | **Film/TV Type** | `History / War` for your example | There are 7 types + Custom. `Drama / Emotion` is the default |
 | **Original Footage Ratio** | **20%** (or 30% for more dialogue) | Share of the final runtime where the film's **own audio** plays and the narrator pauses. Movie Recaps keeps the actors' voices at big moments |
-| **Copy Length** | **2300** words | ⚠️ Default is only 500 — that is a ~3.5-minute video. See the math below |
+| **Copy Length** | **1850** words | ⚠️ Default is only 500 — that is a ~4-minute video. See the math below and PART 7 |
 | **Narration Language** | **English (United States)** | Otherwise the script is written in Chinese |
 
-**Copy Length math:** English narration runs roughly **150 words per minute**. So:
+**Copy Length math:** English narration runs roughly **150 words per minute**. This table is *speaking time only* — the film's own audio adds to it, so the final video is a bit longer (PART 7 has the full table):
 
-| You want | Set Copy Length to |
+| You want this much narration | Set Copy Length to |
 |---|---|
+| 3.5 minutes | 500 (the default — far too short for a recap) |
 | 5 minutes | ~750 |
 | 10 minutes | ~1500 |
-| **15:30 (your example)** | **~2300** |
+| **15 minutes** | **~2300** |
 | 20 minutes | ~3000 |
 
-Maximum allowed is 5000. Start with 2300 and adjust.
+Maximum allowed is 5000.
+
+For the 15:31 Movie Recaps reference: **Copy Length 1500 + Original Footage Ratio 30%**, or **Copy Length 1850 + Original Footage Ratio 20%** (the value set above).
 
 Then click **"Generate Narration Copy"**. Read the script it produces and edit it in the box if you want — this is what the video will be built around.
 
@@ -152,7 +155,7 @@ Leave everything at the default. This is where FFmpeg is reported — it should 
 ## PART 3 — Step-by-step workflow
 
 1. Enter your API keys in **Basic Settings** → click **Test Connection** on both panels
-2. **Left column:** choose **Film/TV Narration**, pick your video file, fill in the title and type, set **Original Footage Ratio = 20**, **Copy Length = 2300**, **Narration Language = English (United States)**
+2. **Left column:** choose **Film/TV Narration**, pick your video file, fill in the title and type, set **Original Footage Ratio = 20**, **Copy Length = 1850**, **Narration Language = English (United States)**
 3. Click **Generate Narration Copy** and wait. The AI analyses frames + online plot info and writes the script
 4. Read through the script — fix any names or facts it got wrong. This is the cheapest place to fix mistakes
 5. **Middle column:** Edge TTS + your chosen English voice
@@ -260,7 +263,7 @@ If your log also shows a connection error to **port 7860**, that is only the opt
 | Symptom | Fix |
 |---|---|
 | Narration comes out in Chinese | **Narration Language** is still `zh-CN`. Set it to English (United States) |
-| Only a 3-minute video instead of 15 | **Copy Length** is still 500. Raise it to ~2300 |
+| Only a 3-minute video instead of 15 | **Copy Length** is still 500. Raise it to ~1850 and re-read PART 7 |
 | Video is vertical | **Video Ratio** is still Portrait. Set it to Landscape |
 | "API key cannot be empty" / connection test fails | Key copied with a trailing space, or the base URL does not match the provider, or you put a **text-only** model in the vision panel |
 | `Unsupported parameter: 'max_tokens'` — or `max_tokens is too large` | See **Part 4** above — set **Max Output Tokens to 0** in both panels, then run `fix-max-tokens.bat` |
@@ -323,3 +326,159 @@ The script generation failed silently. Open the black console window running Nar
 You can skip generation entirely: choose the mode **"Select/Upload Script"** and pick a previously saved `.json` from the list. Handy for making several videos from one script.
 
 ---
+
+---
+
+## PART 7 — "It only made a 52-second recap" + the missing film audio
+
+Two separate things went wrong in that render. Both are fixed below, and both
+are things you can see **before** spending an hour rendering next time.
+
+### 7A — Why the video was only 52 seconds
+
+The render itself was fine. **The length of a recap is decided by the editing
+script, not by the renderer.** Two facts from your log:
+
+- the script contained only **6 items**
+- those 6 items came to **52.867 seconds**
+
+Here is the arithmetic the app uses for every item:
+
+| Item type | How long the clip is |
+|---|---|
+| **OST = 0** (narration) | exactly as long as the **spoken voice-over** of that item |
+| **OST = 1** (film audio) | exactly the **timestamp range** you see in the script |
+
+So a script with six short items *must* produce a ~1-minute video, no matter
+what encoder, quality or ratio you pick. The renderer obeyed the script.
+
+Why the script was so small:
+
+1. **Copy Length was left at the default 500.** Your narration copy came out at
+   roughly 550 words — about **3.5 minutes of speech**. That is the default, not
+   your fault: nothing warns you.
+2. **The matching step is allowed to compress.** The prompt used for
+   "Generate Editing Script" explicitly permits the model to merge narration
+   into fewer bridges (so that the film's own audio can breathe). Given a short
+   copy it collapsed everything into 6 items.
+
+> **The rule to remember: what the narrator actually says is how long the video
+> is.** More narration copy = longer recap. Nothing else moves the needle.
+
+### 7B — The settings that give a ~15-minute recap
+
+Set **Copy Length** and **Original Footage Ratio** together. Total length is
+approximately `narration minutes ÷ (1 − ratio)`:
+
+| Copy Length (words) | Narration alone | @ 20% film audio | @ 30% | @ 50% |
+|---|---|---|---|---|
+| 500 (default) | 3:20 | 4:10 | 4:45 | 6:40 |
+| 1000 | 6:40 | 8:20 | 9:30 | 13:20 |
+| 1500 | 10:00 | 12:30 | 14:15 | 20:00 |
+| 1850 | 12:20 | **15:25** | 17:35 | 24:40 |
+| 2300 | 15:20 | 19:10 | 21:55 | 30:40 |
+
+(150 words per minute, the speed of the Edge TTS voices at rate 1.0.)
+
+**For the 15:31 Movie Recaps reference, use either:**
+
+- **Copy Length 1500 + Original Footage Ratio 30%** → about 14–15 minutes, or
+- **Copy Length 1850 + Original Footage Ratio 20%** → about 15–15½ minutes (this
+  is the PART 2 profile)
+
+Then:
+
+1. Click **Generate Narration Copy**.
+2. **Count the words.** The box should hold roughly the number you asked for
+   (1 word ≈ 6 characters with the spaces). If it is a few hundred words, stop —
+   the copy is too short and the video will be too short. Edit the box or
+   generate again.
+3. Click **Generate Editing Script**, then **Save Script**.
+4. Run **`check-recap-length.bat`** (next section) *before* rendering.
+
+### 7C — `check-recap-length.bat` — never render a 52-second video again
+
+New tool in this bundle. Double-click it **after Save Script** and **before
+Generate Video**:
+
+```
+   NarratoAI recap length check
+   --------------------------------------------------
+   Script      : resource\scripts\2026-1003-150000.json
+   Items       : 150  (113 narration / 37 original sound)
+   Narration   : 3204 words  =  about 21:22 at 150 wpm
+   Film audio  : 3:05
+   Original footage ratio: 13%
+
+   ESTIMATED LENGTH : 24:27   (target 15:00)
+   --------------------------------------------------
+   [LONG] This will run noticeably longer than your target.
+```
+
+It reads the newest saved script (or one you name with
+`check-recap-length.bat --script resource\scripts\FILE.json`) and prints
+`[TOO SHORT]`, `[A BIT SHORT]`, `[OK]` or `[LONG]`. `[TOO SHORT]` means: do not
+render, raise **Copy Length**, regenerate. It also accepts `--target 20` and
+`--wpm 145` if you want other numbers.
+
+**Rule of thumb:** a 15-minute recap needs roughly **100–200 items** in the
+script. Six items means six seconds of nothing happening.
+
+You can also check by eye, without any tool: the **Video Script** section in the
+app shows a row count. A recap-length script has well over a hundred rows.
+
+### 7D — The film's own audio was missing
+
+Symptom: the finished video had your narration and subtitles, but none of the
+film's dialogue, music or sound effects.
+
+**Cause.** `update-windows.bat` downloads FFmpeg from the BtbN "master" build.
+FFmpeg **deprecated the option `-filter_complex_script` in January 2024** and
+current builds no longer accept it. NarratoAI uses that option when it mixes the
+film's audio into the merged video, and when ffmpeg rejects it the app **silently
+falls back to an audio-less merge** — it keeps going, so you only notice at the
+end.
+
+The three log lines that prove it (in your log's language, with the English
+meaning):
+
+| Chinese in the log | English meaning |
+|---|---|
+| `Unrecognized option 'filter_complex_script'` | (already English) your ffmpeg removed this option |
+| `尝试备用合并方法 - 无音频合并` | "trying the backup merge method — merging without audio" |
+| `视频没有音轨，无法提取原声` | "the video has no audio track, the original sound cannot be extracted" |
+
+**Fix — `fix-ffmpeg-audio-merge.bat`.** Double-click it (close the app first, or
+at least restart it afterwards). It changes the single line in
+`app/services/merger_video.py` so the filter graph is passed inline with
+`-filter_complex`, which works on **every** ffmpeg build, old and new. The audio
+mix itself is unchanged, so the result sounds exactly as intended.
+
+- it writes a backup `merger_video.py.ffmpeg-filter.bak` before touching anything
+- running it twice is harmless ("already patched")
+- if the file does not compile afterwards it restores the backup automatically
+- if the app's code has changed too much it stops and tells you, without writing
+
+**You do not have to run it by hand.** `update-windows.bat` now applies this
+patch automatically at step 4b, so a fresh install is fixed too.
+
+After the fix, render again. The log should show the audio mix and the final
+merge finishing, and it should **not** contain the two Chinese warnings above.
+Then check the finished file has audio:
+
+```
+tools\ffmpeg\bin\ffprobe.exe -show_streams "your_output.mp4" | findstr codec_type
+```
+
+You want to see two lines: `codec_type=video` **and** `codec_type=audio`.
+
+### 7E — Checklist for the next render
+
+- [ ] **Copy Length** raised to 1500–1850 (not 500)
+- [ ] **Original Footage Ratio** 20–30%
+- [ ] **Narration Language** = English (United States)
+- [ ] Narration copy **word count checked** (≈ the number you set)
+- [ ] Editing script generated, **Save Script** clicked
+- [ ] `check-recap-length.bat` says `[OK]` (or `[A BIT SHORT]` you accept)
+- [ ] `fix-ffmpeg-audio-merge.bat` applied once (or `update-windows.bat` re-run)
+- [ ] Render, then confirm the output has **both** a video and an audio stream

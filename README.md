@@ -34,6 +34,8 @@ https://github.com/farmanshahid471-code/movie-cap/raw/arena/01a1034a-movie-cap/d
 | `NarratoAI/NARRATOAI-ENGLISH-SETUP.md` | The full setup guide |
 | `NarratoAI/MOVIE-RECAP-SETTINGS.md` | **Where to put the API key + the exact settings for a Movie-Recaps style video** |
 | `NarratoAI/fix-max-tokens.bat` | One-click fix for the `max_tokens` / `max_completion_tokens` error (o-series, gpt-5 models) |
+| `NarratoAI/fix-ffmpeg-audio-merge.bat` | **One-click fix for a recap that lost the film's own audio** (new ffmpeg builds removed an option the app still uses) |
+| `NarratoAI/check-recap-length.bat` | **Tells you how long the video will be before you render it** — stops the "why is my recap 52 seconds?" problem |
 
 English is configured automatically: `language = "en"`, Edge TTS (free voice, no API key) with `en-US-AvaMultilingualNeural-Female`, and English subtitles. Then set **Narration Language → English (United States)** inside the app so the *script* is English too.
 
@@ -68,6 +70,14 @@ Already have the NarratoAI source? Copy the three files from [`windows/`](./wind
 | [`windows/start.bat`](./windows/start.bat) | Starts the web interface and opens http://localhost:8501. Refuses to run with a readable message if the install is missing. |
 | [`windows/narrato_setup_helper.py`](./windows/narrato_setup_helper.py) | Settings editor used by the installer; can also be run by hand. |
 
+Helpers you can run any time:
+
+| File | What it does |
+|---|---|
+| [`windows/check-recap-length.bat`](./windows/check-recap-length.bat) + [`check_recap_length.py`](./windows/check_recap_length.py) | Reads the newest saved script from `resource\scripts\` and estimates the finished length **before** rendering |
+| [`windows/fix-ffmpeg-audio-merge.bat`](./windows/fix-ffmpeg-audio-merge.bat) + [`fix_ffmpeg_filter_options.py`](./windows/fix_ffmpeg_filter_options.py) | Replaces the removed `-filter_complex_script` ffmpeg option so the film's original audio survives the merge |
+| [`windows/fix-max-tokens.bat`](./windows/fix-max-tokens.bat) + [`fix_max_completion_tokens.py`](./windows/fix_max_completion_tokens.py) | Stops the `max_tokens` / `reasoning_effort` 400 errors for gpt-4o, o-series and gpt-5 |
+
 ### About the "window closes instantly" problem
 
 Both `.bat` files re-launch themselves inside a persistent console, and **every** error path ends with a `pause` and a readable message — so a failure can never flash past. That behaviour is deliberate; close the window yourself when you are done.
@@ -75,10 +85,10 @@ Both `.bat` files re-launch themselves inside a persistent console, and **every*
 ### What was verified
 
 - **CRLF line endings**, confirmed byte-for-byte in the pushed GitHub blob *and* after a ZIP round-trip (LF-only `.bat` files silently break `goto`), no BOM, ASCII-only.
-- **Control flow:** balanced blocks, all 20 + 2 jump labels exist and are reachable, no bare `exit`, no unescaped parentheses in `echo` — checked by [`tools/check_batch.py`](./tools/check_batch.py).
+- **Control flow:** balanced blocks, all jump labels exist and are reachable (21 in the installer, 4 + 4 + 3 + 2 in the helpers), no bare `exit`, no unescaped parentheses in `echo` — checked by [`tools/check_batch.py`](./tools/check_batch.py).
 - **Dependencies:** every pinned requirement resolves on PyPI with a Windows/Python 3.12 wheel (`pysrt` has no wheel but builds from sdist via setuptools).
 - **Download URLs:** both return real assets — uv 18,043,715 bytes, FFmpeg 200,163,050 bytes.
-- **The bundle ZIP:** CRC check passes (194 files), longest extracted path is 81 characters, and the copy on GitHub is byte-identical to the verified local build (sha256 `a9005442cab5fcea42ce993d63146886a001f29d042646ffdc47cddcdb3fe1a3`).
+- **The bundle ZIP:** CRC check passes (198 files), longest extracted path is 73 characters, and the copy on GitHub is byte-identical to the verified local build (sha256 `691d3f34be0902b145d374fa432dc62ad66906b180a34fde496bea7995e4a573`).
 
 *Not verified: the `.bat` files have never been executed on real Windows — this sandbox is Linux. The checks above are static analysis plus live HTTP/PyPI verification. If something does fail, the window will stay open and show you the error.*
 

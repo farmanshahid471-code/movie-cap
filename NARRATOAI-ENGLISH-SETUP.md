@@ -296,6 +296,8 @@ Everything below is what I could actually find. There is very little:
 | Get English subtitles | Set **Target language** → `English` |
 | Get an English voice | Audio Settings → Edge TTS → "English Female Voice" |
 | Read English docs | `README-en.md`, or the [official documentation](https://p9mf6rjv3c.feishu.cn/wiki/SP8swLLZki5WRWkhuFvc2CyInDg) |
+| Stop a one-minute recap | Set **Copy Length** to 1500–1850, then run `check-recap-length.bat` before rendering — see [MOVIE-RECAP-SETTINGS.md PART 7](./MOVIE-RECAP-SETTINGS.md#part-7--it-only-made-a-52-second-recap--the-missing-film-audio) |
+| Get the film's own audio back | Run `fix-ffmpeg-audio-merge.bat` once (new FFmpeg builds removed an option the app still uses) |
 | Report a bug | https://github.com/linyqh/NarratoAI/issues |
 
 ---
@@ -303,6 +305,7 @@ Everything below is what I could actually find. There is very little:
 ## 8. Bottom line
 
 - **Is NarratoAI usable entirely in English? Yes** — the interface, settings, help text and error labels are all translated, and it auto-selects English.
+- **Two known traps have ready-made fixes in this bundle:** a too-short recap (raise **Copy Length**, verify with `check-recap-length.bat`) and a recap that lost the film's own audio (`fix-ffmpeg-audio-merge.bat`). Both are explained in [MOVIE-RECAP-SETTINGS.md](./MOVIE-RECAP-SETTINGS.md) PART 7.
 - **Do you need a separate English project? No.**
 - **The only real annoyance** is the 7 progress lines during rendering (item 1 in section 6) — and now you know what all of them mean.
 
