@@ -482,3 +482,121 @@ You want to see two lines: `codec_type=video` **and** `codec_type=audio`.
 - [ ] `check-recap-length.bat` says `[OK]` (or `[A BIT SHORT]` you accept)
 - [ ] `fix-ffmpeg-audio-merge.bat` applied once (or `update-windows.bat` re-run)
 - [ ] Render, then confirm the output has **both** a video and an audio stream
+
+---
+
+## PART 8 — Choosing models: `gpt-6-luna`, DeepSeek, and "the model does not exist"
+
+### 8A — How NarratoAI picks a model (there is no dropdown)
+
+In **Basic Settings** there are three model fields, each with its **own API key and
+own Base URL**:
+
+| Field (English label in the app) | Used for | Used by a movie recap? |
+|---|---|---|
+| **Vision Model Name** | looks at video frames | **No** — the recap workflow works from your subtitle file. Only the Documentary mode uses it |
+| **High Reasoning Model Name** | plot analysis, narration copy, editing script | **Yes — this is the one that matters** |
+| **High Efficiency Model Name** | subtitle translation / calibration. If left empty it falls back to the reasoning model | Only if you use those features |
+
+The provider field is **locked to "OpenAI compatible"** — it is a label, not a
+choice. That is good news: *any* service that speaks the OpenAI API works, you
+just paste its **Base URL + API key + model name**. Model names are **free text**;
+NarratoAI does not keep a list of "known" models, it forwards whatever you type to
+the endpoint you configured.
+
+### 8B — The Chinese errors, translated
+
+Because model choice is decided by your endpoint, these are the messages you get
+back. The second one is the "it doesn't recognise the model" error:
+
+| Chinese message | English meaning |
+|---|---|
+| `模型不存在，请检查模型名称是否正确` | **"The model does not exist — check that the model name is correct."** This is your *endpoint* answering 404/not-found. NarratoAI is passing your name straight through |
+| `认证失败，请检查 API Key 是否正确` | "Authentication failed — check that the API key is correct." |
+| `超出速率限制，请稍后重试` | "Rate limit exceeded — try again later." |
+| `连接失败: ...` | "Connection failed: ..." (the reason is appended) |
+| `OpenAI 兼容模型返回空响应` | "The model returned an empty response." Usually a wrong model name or a blocked account |
+| `OpenAI 兼容文本/视觉模型连接成功 (name)` | "Connection successful (name)" — this is the *good* one |
+
+If you get the first row, the model name is not served by **the Base URL you set**.
+Check what that endpoint actually offers:
+
+```
+curl https://api.openai.com/v1/models -H "Authorization: Bearer YOUR_KEY"
+```
+
+(swap the URL for your provider's; Windows 10/11 already includes `curl.exe`).
+If your name is not in that list, the endpoint cannot serve it no matter what you
+type in the app — that is a provider/account matter, not a NarratoAI limitation.
+
+### 8C — Can you use `gpt-6-luna`? Yes
+
+`gpt-6-luna` is a real OpenAI model (shipped 2026-09-22, the efficient tier of the
+GPT-6 family). What matters for NarratoAI:
+
+| Property | Value | Why it matters here |
+|---|---|---|
+| Inputs | **text + image** | It can serve **all three** fields — including the vision panel |
+| Context | 1,050,000 tokens | Your subtitles are ~61 cues, so no concern |
+| Max output | 128,000 tokens | A 1500-word narration copy is ~2000 tokens — plenty |
+| Reasoning | yes, effort levels `none → max` | It **accepts** `reasoning_effort`, unlike gpt-4o |
+| API | Chat Completions | Exactly what NarratoAI uses |
+
+**Settings to use with it:**
+
+- Base URL: `https://api.openai.com/v1`, your OpenAI key
+- **Thinking Level: `auto`** (it supports effort control, but `auto` is the
+  safest — the app only injects `reasoning_effort` on low/medium/high)
+- **Max Output Tokens: `0`** (omit the cap; the app's 65536 default is unnecessary)
+- **Temperature 1.0, Top P 1.0** — reasoning models reject custom values
+
+If `fix-max-tokens.bat` (v2) is applied, the parameter differences are handled
+automatically anyway: unsupported `max_tokens` forms, `reasoning_effort`,
+`temperature` and `top_p` are retried without the offending parameter.
+
+> If you reach OpenAI through a relay or aggregator, and it answers "model does
+> not exist", that relay simply does not carry `gpt-6-luna`. Nothing in NarratoAI
+> stops you using the name — the relay does.
+
+### 8D — Can you use DeepSeek for both text and visuals? Yes (with one caveat)
+
+DeepSeek changed in 2026: **V4.1 Flash (`deepseek-flash`) accepts image input
+natively**, and the API is OpenAI-compatible.
+
+| Panel | Model name to type | Notes |
+|---|---|---|
+| **High Reasoning Model Name** | `deepseek-v4-pro` | V4 Pro, 1M context, thinking mode |
+| **High Efficiency Model Name** | `deepseek-flash` | V4.1 Flash — cheap and fast |
+| **Vision Model Name** | `deepseek-flash` | V4.1 Flash has native image input. The older `deepseek-v4-flash-vision-exp` id now routes to the same model |
+| **Base URL** (both panels) | `https://api.deepseek.com` | `https://api.deepseek.com/v1` also works |
+
+- API key: from **https://platform.deepseek.com/api_keys**
+- Use the **V4 names**. The old `deepseek-chat` / `deepseek-reasoner` ids were
+  retired/redirected — using them is what usually produces "model does not exist".
+- DeepSeek V4 turns **thinking on by default**. That is fine, but it costs tokens
+  and time; if a generation feels slow, set Thinking Level as you prefer.
+- **Caveat on the vision side:** DeepSeek's image path is built for cost — images
+  are downscaled and billed in a very small token budget (the vision variant
+  capped at 384 tokens per image). Film frames are busy; small faces and on-screen
+  text may be lost. Test it on a few frames before relying on it.
+
+**But remember 8A:** the recap workflow never calls the vision model. If you only
+make movie recaps from subtitles, DeepSeek's text models are all you need — the
+Vision panel can be pointed at the same DeepSeek model purely to keep it valid for
+the other modes.
+
+### 8E — Which combination should you pick?
+
+| | Cheapest | Balanced | Best quality |
+|---|---|---|---|
+| High Reasoning | `deepseek-v4-pro` | `gpt-6-luna` | `gpt-6-luna` (high effort) |
+| High Efficiency | `deepseek-flash` | `deepseek-flash` | `gpt-6-luna` |
+| Vision | `deepseek-flash` | `gpt-6-luna` | `gpt-6-luna` or Gemini |
+
+Two practical warnings:
+
+1. **Mixing providers is normal** — each panel has its own key and Base URL, so
+   text on DeepSeek and vision on OpenAI is perfectly valid.
+2. **Long inputs cost money on the reasoning model.** The recap pipeline sends the
+   whole subtitle file + narration copy to the High Reasoning model. Very large
+   films with 1M-token contexts are exactly where the cheap tier earns its place.

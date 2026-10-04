@@ -88,7 +88,7 @@ Both `.bat` files re-launch themselves inside a persistent console, and **every*
 - **Control flow:** balanced blocks, all jump labels exist and are reachable (21 in the installer, 4 + 4 + 3 + 2 in the helpers), no bare `exit`, no unescaped parentheses in `echo` — checked by [`tools/check_batch.py`](./tools/check_batch.py).
 - **Dependencies:** every pinned requirement resolves on PyPI with a Windows/Python 3.12 wheel (`pysrt` has no wheel but builds from sdist via setuptools).
 - **Download URLs:** both return real assets — uv 18,043,715 bytes, FFmpeg 200,163,050 bytes.
-- **The bundle ZIP:** CRC check passes (198 files), longest extracted path is 73 characters, and the copy on GitHub is byte-identical to the verified local build (sha256 `691d3f34be0902b145d374fa432dc62ad66906b180a34fde496bea7995e4a573`).
+- **The bundle ZIP:** CRC check passes (198 files), longest extracted path is 73 characters, and the copy on GitHub is byte-identical to the verified local build (sha256 `3a7f73fe4dbb1fce331040afe1af321568255b7773f87e192164bad2c8f628bd`).
 
 *Not verified: the `.bat` files have never been executed on real Windows — this sandbox is Linux. The checks above are static analysis plus live HTTP/PyPI verification. If something does fail, the window will stay open and show you the error.*
 

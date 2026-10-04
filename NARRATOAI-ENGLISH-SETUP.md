@@ -237,6 +237,16 @@ text_openai_base_url    = "https://api.openai.com/v1"
 
 The default example config points at SiliconFlow (`https://api.siliconflow.cn/v1`) — change the base URL if you use OpenAI, DeepSeek, Gemini, OpenRouter, etc.
 
+**Model names are free text.** There is no list of "supported" models — the app
+forwards whatever name you type to the Base URL you give it, so a brand-new model
+like `gpt-6-luna` works the day it ships. If the app answers
+`模型不存在，请检查模型名称是否正确` (*"the model does not exist — check the name"*),
+that is **your endpoint** rejecting the name, not NarratoAI. PART 8 of
+[MOVIE-RECAP-SETTINGS.md](./MOVIE-RECAP-SETTINGS.md) has the full picture:
+`gpt-6-luna`, using DeepSeek for text *and* vision, and every model-related
+Chinese error translated. Note that the **movie-recap workflow never uses the
+vision model** — it works from your subtitle file.
+
 ---
 
 ## 5. Make the **output** English (not just the buttons)
